@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+
+# Segredos: só o .env.example é versionado
+.env
+.env.*
+!.env.example
+
+# Saídas do Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# Sistema
+.DS_Store
+Thumbs.db
