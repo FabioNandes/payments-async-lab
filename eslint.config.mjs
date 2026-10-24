@@ -8,7 +8,17 @@ const NO_SLEEP =
   'Proibido espera fixa. Use polling com timeout (expect.poll ou o helper único de poll).';
 
 export default defineConfig(
-  { ignores: ['node_modules/', 'dist/', 'playwright-report/', 'test-results/', 'blob-report/'] },
+  {
+    // app/ é o sistema sob teste: tem dependências e tsconfig próprios e roda só no contêiner.
+    ignores: [
+      'node_modules/',
+      'dist/',
+      'playwright-report/',
+      'test-results/',
+      'blob-report/',
+      'app/',
+    ],
+  },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   {

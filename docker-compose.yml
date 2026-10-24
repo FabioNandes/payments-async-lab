@@ -1,0 +1,99 @@
+# Ambiente do sistema sob teste: Medusa server + worker + Postgres + Redis.
+#
+#   cp .env.example .env    # preencha as senhas
+#   docker compose up -d --build --wait
+#   docker compose down -v  # descarta banco e filas: o próximo `up` começa do zero
+#
+# Consumo de memória medido e troubleshooting: docs/ambiente.md
+name: payments-async-lab
+
+x-medusa-env: &medusa-env
+  # `sslmode=disable` é obrigatório: o Medusa liga SSL para todo host que não seja localhost, e
+  # aqui o host é `postgres`. Sem isso as migrations expiram com "Could not connect to the database".
+  DATABASE_URL: postgres://${POSTGRES_USER:?defina POSTGRES_USER no .env}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:?defina POSTGRES_DB no .env}?sslmode=disable
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: ${MEDUSA_JWT_SECRET:?defina MEDUSA_JWT_SECRET no .env}
+  COOKIE_SECRET: ${MEDUSA_COOKIE_SECRET:?defina MEDUSA_COOKIE_SECRET no .env}
+  STORE_CORS: http://localhost:8000
+  ADMIN_CORS: http://localhost:9000
+  AUTH_CORS: http://localhost:8000,http://localhost:9000
+  PORT: 9000
+  MEDUSA_DISABLE_TELEMETRY: 'true'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Exposto só no host local: as asserções de saga leem o estado persistido.
+    ports:
+      - 127.0.0.1:${POSTGRES_PORT:-5432}:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Sem volume: filas e eventos não sobrevivem a um `down`. Exposto no host local para a suíte
+  # inspecionar as filas do BullMQ.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - 127.0.0.1:${REDIS_PORT:-6379}:6379
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build: ./app
+    image: payments-async-lab/medusa:2.21.2
+    environment:
+      <<: *medusa-env
+      MEDUSA_WORKER_MODE: server
+      DISABLE_MEDUSA_ADMIN: 'false'
+      MEDUSA_ADMIN_EMAIL: ${MEDUSA_ADMIN_EMAIL:?defina MEDUSA_ADMIN_EMAIL no .env}
+      MEDUSA_ADMIN_PASSWORD: ${MEDUSA_ADMIN_PASSWORD:?defina MEDUSA_ADMIN_PASSWORD no .env}
+    ports:
+      - 127.0.0.1:9000:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck: &medusa-health
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:9000/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      # Primeira subida roda todas as migrations antes de responder.
+      start_period: 180s
+      start_interval: 2s
+
+  worker:
+    build: ./app
+    image: payments-async-lab/medusa:2.21.2
+    command: ['medusa', 'start']
+    environment:
+      <<: *medusa-env
+      MEDUSA_WORKER_MODE: worker
+      DISABLE_MEDUSA_ADMIN: 'true'
+    # Só sobe depois que o server aplicou as migrations. A ordem de inicialização entre server e
+    # worker é exatamente o que o bug F-01 explora (docs-planejamento/02, seção 2): não mexer
+    # nela sem registrar.
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck: *medusa-health
+
+volumes:
+  postgres-data:
