@@ -51,7 +51,8 @@ experiência prévia com entregas regulatórias de pagamento instantâneo.
 
 - [x] ESLint, Prettier e TypeScript estrito, com regra de lint contra espera fixa
 - [x] Workflows de CI (lint + typecheck) e de publicação no GitHub Pages
-- [ ] Ambiente Medusa com um comando, RAM medida
+- [x] Ambiente Medusa 2.21 com um comando (server, worker, Postgres, Redis): cerca de 700–930 MiB
+      medidos ([docs/ambiente.md](docs/ambiente.md))
 - [ ] Reprodução determinística da perda de evento na inicialização do worker
 - [ ] Fatia vertical: evento → consumidor → message pact → teste de idempotência
 - [ ] `quality-exports/` (`manifest.json`, `scenarios.json`)
@@ -60,12 +61,17 @@ experiência prévia com entregas regulatórias de pagamento instantâneo.
 
 ## Desenvolvimento
 
-Requer Node 24.
+Requer Node 24 e Docker.
 
 ```sh
 npm ci
-npm run check   # lint + formatação + typecheck
+npm run check                        # lint + formatação + typecheck
+
+cp .env.example .env                 # preencha as senhas (qualquer valor local)
+docker compose up -d --build --wait  # Medusa em http://localhost:9000
 ```
+
+Endereços, consumo de memória e troubleshooting: [docs/ambiente.md](docs/ambiente.md).
 
 ## Relação com os outros repositórios
 
